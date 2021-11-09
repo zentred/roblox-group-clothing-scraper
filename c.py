@@ -1,4 +1,4 @@
-import requests, re, time, colorama, random, threading, os, shutil
+import requests, re, time, colorama, random, threading, os
 from collections import Counter
 from threading import Thread
 from colorama import init, Fore, Back, Style
@@ -45,16 +45,6 @@ def asset_download(asset_list):
         except:
             print(Fore.RED + '[STEALER]' + Fore.RED + f' {asset_id} template was not downloaded')
 
-def sort_files(folder):
-    print(Fore.CYAN + '[SORT]' + Fore.CYAN + f' Templates are being sorted')
-    source = os.path.join('C:\\Users\\badha\\OneDrive\\Desktop\\clothing scraper')
-    sort = os.path.join(f'C:\\Users\\badha\\OneDrive\\Desktop\\clothing scraper\\{folder}')
-    dirName = f'{folder}'
-    os.mkdir(dirName)
-    for f in os.listdir(source):
-        if f.endswith((".png",".jpg",".jpeg")):
-            shutil.move(os.path.join(source, f), sort)
-
 print(f'\n' + Fore.CYAN + '[GROUPID]' + Fore.CYAN + ' Enter Group ID:')
 groupid = input('')
 folder = groupid
@@ -70,6 +60,3 @@ for i in range(threadc):
     threads[i].start()
 for thread in threads:
     thread.join()
-
-sort_files(folder)
-print(Fore.GREEN + '[SORT]' + Fore.GREEN + f' Templates were sorted')
