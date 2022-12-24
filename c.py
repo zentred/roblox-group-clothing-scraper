@@ -1,83 +1,91 @@
-import requests, re, time, random, threading, os
+import requests, re, time, random, threading, os, ctypes, json
 from threading import Thread
 from colorama import init, Fore
 init()
 
-try:
-    os.mkdir('clothes')
+with open('config.json') as config:
+    config = json.load(config)
+
+with open('checked_groups.txt', 'a') as q:
+    q.close()
+
+try: os.mkdir('clothes')
 except: pass
 
-lock = threading.Lock()
-keyword = input('Enter keyword: ')
-maximumMembers = 5000000
-totalAssets = []
-alreadyDone = []
+checked_groups = open('checked_groups.txt').read().splitlines()
 
-def scrapeGroup(groupId):
-    global totalAssets
-    pageCursor = ''
-    while pageCursor != None:
-        try:
-            r = requests.get(f'https://catalog.roblox.com/v1/search/items?category=All&creatorTargetId={groupId}&creatorType=Group&cursor={pageCursor}&limit=100&sortOrder=Desc').json()
-            if 'data' in r:
-                if len(r['data']) != 0:
-                    currentAmount = 0
-                    [(totalAssets.append(asset['id']), currentAmount := currentAmount + 1) for asset in r['data'] if asset['itemType'] == 'Asset']
-                    with lock: print(f'[{Fore.MAGENTA}+{Fore.WHITE}] Collected {Fore.MAGENTA}{currentAmount} {Fore.WHITE}assets from {groupId}')
-                    pageCursor = r['nextPageCursor']
-                else:
-                    with lock: print(f'[{Fore.MAGENTA}+{Fore.WHITE}] Group has no clothes >{Fore.MAGENTA} {groupId}{Fore.WHITE}')
-                    return None
+class Bot:
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.checked = 0
+        self.scraped = 0
+        self.downloaded = 0
+        self.search()
+
+    def title(self, status):
+        ctypes.windll.kernel32.SetConsoleTitleW(
+            f'Checked Groups: {self.checked} / Scraped Assets: {self.scraped} / Downloaded Assets: {self.downloaded} / Status: {status}'
+        )
+
+    def search(self):
+        cursor = ''
+        while cursor != None:
+            resp = requests.get(
+                f'https://groups.roblox.com/v1/groups/search?cursor={cursor}&keyword={config["keyword"]}&limit=100&prioritizeExactMatch=true&sortOrder=Asc'
+            )
+            if resp.status_code == 200:
+                for i in resp.json()['data']:
+                    if config['minimumMembers'] <= i['memberCount'] <= config['maximumMembers']:
+                        if str(i['id']) not in checked_groups:
+                            self.scrape(i['id'])
+                cursor = resp.json()['nextPageCursor']
             else:
-                with lock: print(f'[{Fore.YELLOW}-{Fore.WHITE}] Finding assets within group was ratelimited, retrying in {Fore.YELLOW}1{Fore.WHITE} minute')
+                self.title('Ratelimited')
                 time.sleep(60)
-        except Exception as err:
-            print(err)
-            time.sleep(60)
-            continue
 
-def downloadClothes():
-    global alreadyDone
-    while True:
-        for assetId in totalAssets:
-            if assetId not in alreadyDone:
-                alreadyDone.append(assetId)
-                try:
-                    r = requests.get(re.findall(r'<url>(.+?)(?=</url>)', requests.get(f'https://assetdelivery.roblox.com/v1/asset?id={assetId}').text.replace('http://www.roblox.com/asset/?id=', 'https://assetdelivery.roblox.com/v1/asset?id='))[0]).content
-                    if len(r) >= 7500:
-                        with lock: print(f'[{Fore.GREEN}+{Fore.WHITE}] Downloaded asset > {Fore.GREEN}{assetId}{Fore.WHITE}')
-                        with open(f'clothes/{assetId}.png', 'wb') as f:
-                            f.write(r)
-                    else:
-                        with lock: print(f'[{Fore.RED}+{Fore.WHITE}] Unable to download asset > {Fore.RED}{assetId}{Fore.WHITE}')
-                except:
-                    with lock: print(f'[{Fore.RED}+{Fore.WHITE}] Unable to download asset > {Fore.RED}{assetId}{Fore.WHITE}')
-                    pass
-                totalAssets.remove(assetId)
-
-def findGroups():
-    pageCursor = ''
-    while pageCursor != None:
-        try:
-            r = requests.get(f'https://groups.roblox.com/v1/groups/search?cursor={pageCursor}&keyword={keyword}&limit=100&prioritizeExactMatch=true&sortOrder=Asc').json()
-            if 'data' in r:
-                for group in r['data']:
-                    if group['memberCount'] <= maximumMembers:
-                        with lock: print(f'[{Fore.LIGHTCYAN_EX}-{Fore.WHITE}] Group found > {Fore.LIGHTCYAN_EX}{group["name"]}{Fore.WHITE}')
-                        scrapeGroup(group['id'])
-                    else:
-                        pass
-                        #with lock: print(f'[{Fore.LIGHTCYAN_EX}-{Fore.WHITE}] Group skipped > {Fore.LIGHTCYAN_EX}{group["memberCount"]}{Fore.WHITE} Members')
-                pageCursor = r['nextPageCursor']
+    def scrape(self, groupid):
+        cursor, assets = '', []
+        while cursor != None:
+            resp = requests.get(
+                f'https://catalog.roblox.com/v1/search/items?category=All&creatorTargetId={groupid}&creatorType=Group&cursor={cursor}&limit=100&sortOrder=Desc'
+            )
+            if resp.status_code == 200:
+                if resp.json()['data'] != []:
+                    for asset in resp.json()['data']:
+                        if asset['itemType'] == 'Asset':
+                            assets.append(asset['id'])
+                            self.scraped += 1
+                            self.title('Running')
+                cursor = resp.json()['nextPageCursor']
             else:
-                with lock: print(f'[{Fore.YELLOW}-{Fore.WHITE}] Finding groups was ratelimit, retrying in {Fore.YELLOW}1{Fore.WHITE} minute')
+                self.title('Ratelimited')
                 time.sleep(60)
-        except Exception as err:
-            print(err)
-            time.sleep(60)
-            continue
+        self.checked += 1
+        self.title('Running')
 
-threading.Thread(target=findGroups).start()
-time.sleep(5)
-for i in range(50):
-    threading.Thread(target=downloadClothes).start()
+        threads = [threading.Thread(target=self.download, args=[assets[i::25]]) for i in range(25)]
+        for i in threads:
+            i.start()
+        for i in threads:
+            i.join()
+
+        with open('checked_groups.txt', 'a') as q:
+            q.writelines(f'{groupid}\n')
+
+    def download(self, assets):
+        for assetid in assets:
+            try:
+                url = re.search('<url>(.*?)</url>', requests.get(f'https://assetdelivery.roblox.com/v1/asset?id={assetid}', timeout=5).text).group(1).replace('http://www.roblox.com/asset/?id=', 'https://assetdelivery.roblox.com/v1/asset?id=')
+                resp = requests.get(url, timeout=5).content
+                if len(resp) >= 7500:
+                    with open(f'clothes/{assetid}.png', 'wb') as f:
+                        f.write(resp)
+                    self.downloaded += 1
+                    self.title('Running')
+            except Exception as err:
+                print(err)
+                pass
+
+Bot()
+input("    Unable to find any groups + assets to copy? Try increasing the maximum members\n\n    Press enter to exit.")
