@@ -1,1 +1,1 @@
-![](https://imgur.com/kPz3wmm)
+![](https://github.com/zentred/roblox-group-clothing-scraper/blob/main/run.gif)
